@@ -4,6 +4,14 @@
 #include <assert.h>
 #include <stdint.h>
 
+/* TODO:
+ * - parse number
+ * - get number as int or float
+ * - error handling
+ * - proper memory management
+ * - store object as hash map
+ */
+
 typedef struct {
 	char *data;
 	char *top;
@@ -211,8 +219,6 @@ double parse_number(parser_state *parser) {
 static
 json_node parse_node(parser_state *parser) {
 	json_node result = {};
-
-	// TODO: parse number
 
 	char c = *parser->top;
 	if (c == '{') {

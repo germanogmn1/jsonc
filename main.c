@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "jsonc.h"
 
-char * raw_json = "{\n"
+char *raw_json = "{\n"
 	"    \"key\\t\\t1\": \"some text he\\u04bce\",\n"
 	"    \"key2\": null,\n"
 	"    \"key3\\uf123\": true,\n"
