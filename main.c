@@ -5,7 +5,7 @@ char * raw_json = "{\n"
 	"    \"key\\t\\t1\": \"some text he\\u04bce\",\n"
 	"    \"key2\": null,\n"
 	"    \"key3\\uf123\": true,\n"
-	"    \"key4\": [false, 35, \"foo\"]\n"
+	"    \"key4\": [false, 35.827, \"foo\"]\n"
 	"}\n";
 
 int main() {

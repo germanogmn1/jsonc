@@ -3,11 +3,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdint.h>
-
-typedef struct {
-	char *data;
-	char *top;
-} parser_state;
+#include <float.h>
 
 static
 bool str_start_with(char *str, char *substr) {
@@ -19,49 +15,29 @@ bool str_start_with(char *str, char *substr) {
 }
 
 static
-void eat_whitespace(parser_state *parser) {
-	for (;;) {
-		char c = *parser->top;
-		if (c == ' ' || c == '\t' || c == '\n')
-			parser->top++;
-		else
-			break;
-	}
+void eat_whitespace(char **p) {
+	while (**p == ' ' || **p == '\t' || **p == '\n')
+		(*p)++;
 }
 
 static
-uint8_t hex_to_num(char c) {
-	uint8_t result;
-	if (c >= '0' && c <= '9')
-		result = c - '0';
-	else if (c >= 'a' && c <= 'f')
-		result = 10 + c - 'a';
-	else if (c >= 'A' && c <= 'F')
-		result = 10 + c - 'A';
-	else
-		assert(!"invalid hex digit");
-	return result;
-}
-
-static
-char *parse_string(parser_state *parser) {
+char *parse_string(char **p) {
 	char *result = malloc(sizeof(char) * 100);
 	size_t i = 0;
 
-	assert(*parser->top == '"');
-	parser->top++;
+	assert(**p == '"');
+	(*p)++;
 
 	for (;;) {
-		char c = *parser->top++;
-		if (c < ' ') {
+		if (**p < ' ') {
 			assert(!"control characters not permitted");
-		} if (c == '\\') {
-			c = *parser->top++;
-			switch (c) {
+		} if (**p == '\\') {
+			(*p)++;
+			switch (**p) {
 			case '"':
 			case '\\':
 			case '/':
-				result[i++] = c;
+				result[i++] = **p;
 				break;
 			case 'b':
 				result[i++] = '\b';
@@ -79,17 +55,21 @@ char *parse_string(parser_state *parser) {
 				result[i++] = '\t';
 				break;
 			case 'u': {
-				// TODO: check end of string
-				char a = parser->top[0];
-				char b = parser->top[1];
-				char c = parser->top[2];
-				char d = parser->top[3];
-				parser->top += 4;
-
-				uint16_t codepoint = hex_to_num(d) +
-					(hex_to_num(c) << 4) +
-					(hex_to_num(b) << 8) +
-					(hex_to_num(a) << 12);
+				uint16_t codepoint = 0;
+				for (int i = 3; i >= 0; i--) {
+					(*p)++;
+					int digit;
+					if (**p >= '0' && **p <= '9') {
+						digit = **p - '0';
+					} else if (**p >= 'a' && **p <= 'f') {
+						digit = 10 + (**p - 'a');
+					} else if (**p >= 'A' && **p <= 'F') {
+						digit = 10 + (**p - 'A');
+					} else {
+						assert(!"invalid hex digit");
+					}
+					codepoint += digit << (i * 4);
+				}
 
 				// UTF-8 encoding
 				if (codepoint <= 0x7f) {
@@ -118,49 +98,49 @@ char *parse_string(parser_state *parser) {
 			default:
 				assert(!"unknown escape sequence");
 			}
-		} else if (c == '"') {
+		} else if (**p == '"') {
 			result[i++] = '\0';
+			(*p)++;
 			break;
 		} else {
-			result[i++] = c;
+			result[i++] = **p;
 		}
+		(*p)++;
 	}
 
-	// printf("## %s ##\n", result);
 	return result;
 }
 
 static
-json_node parse_node(parser_state *parser);
+json_node parse_node(char **p);
 
 static
-json_object parse_object(parser_state *parser) {
+json_object parse_object(char **p) {
 	json_object result = {};
 	result.entries = malloc(sizeof(json_object_entry) * 100);
 
-	assert(*parser->top == '{');
-	parser->top++;
+	assert(**p == '{');
+	(*p)++;
 
 	for (;;) {
-		eat_whitespace(parser);
-		char c = *parser->top;
-		if (c == '}') {
-			parser->top++;
+		eat_whitespace(p);
+		if (**p == '}') {
+			(*p)++;
 			break;
-		} else if (c == '"') {
+		} else if (**p == '"') {
 			json_object_entry *entry = result.entries + result.count++;
-			entry->key = parse_string(parser);
-			eat_whitespace(parser);
-			assert(*parser->top == ':');
-			parser->top++;
-			eat_whitespace(parser);
-			entry->value = parse_node(parser);
-			eat_whitespace(parser);
-			// printf("\n~~%s~~\n", parser->top);
-			char c = *parser->top++;
-			if (c == '}')
-				break;
-			assert(c == ',');
+			entry->key = parse_string(p);
+			eat_whitespace(p);
+			assert(**p == ':');
+			(*p)++;
+			eat_whitespace(p);
+			entry->value = parse_node(p);
+			eat_whitespace(p);
+			if (**p == ',') {
+				(*p)++;
+			} else if (**p != '}') {
+				assert(!"expected comma or end of object");
+			}
 		} else {
 			assert(!"expected string with object key");
 		}
@@ -169,74 +149,110 @@ json_object parse_object(parser_state *parser) {
 }
 
 static
-json_array parse_array(parser_state *parser) {
+json_array parse_array(char **p) {
 	json_array result = {};
 	result.elements = malloc(sizeof(json_node) * 100);
-	assert(*parser->top == '[');
-	parser->top++;
+	assert(**p == '[');
+	(*p)++;
 
 	for (;;) {
-		eat_whitespace(parser);
-		if (*parser->top == ']') {
-			parser->top++;
+		eat_whitespace(p);
+		if (**p == ']') {
+			(*p)++;
 			break;
 		}
 		json_node *elem = result.elements + result.count++;
-		*elem = parse_node(parser);
+		*elem = parse_node(p);
 
-		eat_whitespace(parser);
-		char c = *parser->top++;
-		if (c == ']')
-			break;
-		assert(c == ',');
+		eat_whitespace(p);
+		if (**p == ',') {
+			(*p)++;
+		} else if (**p != ']') {
+			assert(!"expected comma or end of array");
+		}
 	}
 
 	return result;
 }
 
 static
-double parse_number(parser_state *parser) {
-	char c = *parser->top;
-	bool negative = false;
-	if (c == '-') {
-		negative = true;
-		parser->top++;
+double parse_number(char **p) {
+	int sign;
+	if (**p == '-') {
+		sign = -1;
+		(*p)++;
+	} else {
+		sign = 1;
 	}
-	while (c == '.' || (c >= '0' && c <= '9')) {
-		c = *++parser->top;
+
+	int number;
+	if (**p == '0') {
+		number = 0;
+		(*p)++;
+	} else if (**p >= '1' && **p <= '9') {
+		while (**p >= '0' && **p <= '9') {
+			number = number * 10 + (**p - '0');
+			(*p)++;
+		}
+	} else {
+		assert(!"invalid number");
 	}
-	return 3.0;
+
+	int decimal_digits = 0;
+	if (**p == '.') {
+		(*p)++;
+		while (**p >= '0' && **p <= '9') {
+			number = number * 10 + (**p - '0');
+			(*p)++;
+			++decimal_digits;
+		}
+		assert(decimal_digits > 0);
+	}
+
+	if (**p == 'e' || **p == 'E') {
+		(*p)++;
+		if (**p == '+' || **p == '-') {
+			(*p)++;
+			// parse sign
+		}
+
+		if (**p >= '0' && **p <= '9') {
+			// parse number
+		} else {
+			assert(!"invalid exponent");
+		}
+	}
+
+	// DBL_MIN_EXP DBL_MAX_EXP
+	return 3.5;
 }
 
 static
-json_node parse_node(parser_state *parser) {
+json_node parse_node(char **p) {
 	json_node result = {};
 
-	// TODO: parse number
-
-	char c = *parser->top;
-	if (c == '{') {
+	if (**p == '{') {
 		result.type = JSON_OBJECT;
-		result.value.object = parse_object(parser);
-	} else if (c == '[') {
+		result.value.object = parse_object(p);
+	} else if (**p == '[') {
 		result.type = JSON_ARRAY;
-		result.value.array = parse_array(parser);
-	} else if (c == '"') {
+		result.value.array = parse_array(p);
+	} else if (**p == '"') {
 		result.type = JSON_STRING;
-		result.value.string = parse_string(parser);
-	} else if (c == '-' || (c >= '0' && c <= '9')) {
+		result.value.string = parse_string(p);
+	} else if (**p == '-' || (**p >= '0' && **p <= '9')) {
 		result.type = JSON_NUMBER;
-		result.value.number = parse_number(parser);
-	} else if (str_start_with(parser->top, "true")) {
-		parser->top += 4;
+		result.value.number = parse_number(p);
+	} else if (str_start_with(*p, "true")) {
+		*p += 4;
 		result.type = JSON_BOOL;
 		result.value.boolean = true;
-	} else if (str_start_with(parser->top, "false")) {
-		parser->top += 5;
+	} else if (str_start_with(*p, "false")) {
+		*p += 5;
 		result.type = JSON_BOOL;
 		result.value.boolean = false;
-	} else if (str_start_with(parser->top, "null")) {
-		parser->top += 4;
+	} else if (str_start_with(*p, "null")) {
+		*p += 4;
 		result.type = JSON_NULL;
 	} else {
 		assert(!"invalid JSON value");
@@ -247,16 +263,12 @@ json_node parse_node(parser_state *parser) {
 
 extern
 json_node json_parse(char *data) {
-	parser_state parser;
-	parser.data = data;
-	parser.top = data;
-
-	eat_whitespace(&parser);
+	char **p = &data;
+	eat_whitespace(p);
 
 	json_node root = {};
-	char c = *parser.top;
-	if (c == '{' || c == '[') {
-		root = parse_node(&parser);
+	if (**p == '{' || **p == '[') {
+		root = parse_node(p);
 	} else {
 		assert(!"root object must be object or array");
 	}
