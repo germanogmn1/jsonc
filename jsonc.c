@@ -5,6 +5,13 @@
 #include <stdint.h>
 #include <float.h>
 
+/* TODO:
+ * - get number as int or float
+ * - error handling
+ * - proper memory management
+ * - store object as hash map
+ */
+
 static
 bool str_start_with(char *str, char *substr) {
 	while (*substr) {
