@@ -177,15 +177,13 @@ json_array parse_array(char **p) {
 
 static
 double parse_number(char **p) {
-	int sign;
+	bool negative = false;
 	if (**p == '-') {
-		sign = -1;
+		negative = true;
 		(*p)++;
-	} else {
-		sign = 1;
 	}
 
-	int number;
+	double number = 0;
 	if (**p == '0') {
 		number = 0;
 		(*p)++;
@@ -199,6 +197,7 @@ double parse_number(char **p) {
 	}
 
 	int decimal_digits = 0;
+	int exponent = 0;
 	if (**p == '.') {
 		(*p)++;
 		while (**p >= '0' && **p <= '9') {
@@ -207,24 +206,50 @@ double parse_number(char **p) {
 			++decimal_digits;
 		}
 		assert(decimal_digits > 0);
+		exponent -= decimal_digits;
 	}
+
+	if (negative)
+		number = -number;
 
 	if (**p == 'e' || **p == 'E') {
 		(*p)++;
-		if (**p == '+' || **p == '-') {
+		if (**p == '+') {
+			negative = false;
 			(*p)++;
-			// parse sign
+		} else if (**p == '-') {
+			negative = true;
+			(*p)++;
 		}
 
 		if (**p >= '0' && **p <= '9') {
-			// parse number
+			int n = 0;
+			while (**p >= '0' && **p <= '9') {
+				n = n * 10 + (**p - '0');
+				(*p)++;
+			}
+			if (negative) {
+				exponent -= n;
+			} else {
+				exponent += n;
+			}
 		} else {
 			assert(!"invalid exponent");
 		}
 	}
 
-	// DBL_MIN_EXP DBL_MAX_EXP
-	return 3.5;
+	assert(exponent >= DBL_MIN_EXP);
+	assert(exponent <= DBL_MAX_EXP);
+
+	if (exponent < 0) {
+		for (int i = exponent; i < 0; i++)
+			number /= 10;
+	} else {
+		for (int i = 0; i < exponent; i++)
+			number *= 10;
+	}
+
+	return number;
 }
 
 static
@@ -309,7 +334,6 @@ void print_indented(json_node node, size_t indent) {
 	case JSON_ARRAY: {
 		json_array array = node.value.array;
 
-		ind(indent);
 		printf("[\n");
 		indent++;
 
