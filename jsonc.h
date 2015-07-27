@@ -39,5 +39,11 @@ typedef struct json_object_entry {
 	json_node value;
 } json_object_entry;
 
-json_node json_parse(char *data);
+typedef struct {
+	char *error;
+	json_node json;
+} json_parse_result;
+
+char* json_get_error();
+bool json_parse(char *data, json_node *out_json);
 void json_print(json_node json);

@@ -18,10 +18,15 @@ char * raw_json = "{\n"
 int main() {
 	printf("---\n%s---\n", raw_json);
 
+	json_node node;
 	uint64_t start = __rdtsc();
-	json_node node = json_parse(raw_json);
+	bool ok = json_parse(raw_json, &node);
 	uint64_t duration = __rdtsc() - start;
 	printf("\n{{{ %lu }}}\n", duration);
 
-	json_print(node);
+	if (ok) {
+		json_print(node);
+	} else {
+		printf("ERROR: %s\n", json_get_error());
+	}
 }
