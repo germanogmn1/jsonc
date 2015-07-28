@@ -3,30 +3,36 @@
 #include "jsonc.h"
 #include <stdint.h>
 
-char * raw_json = "{\n"
-	"	\"key\\t\\t1\": \"some text he\\u04bce\",\n"
-	"	\"key2\": null,\n"
-	"	\"key3\\uf123\": true,\n"
-	"	\"key4\": [\n"
-	"		false,\n"
-	"		35.827,\n"
-	"		\"foo\",\n"
-	"		[1e3, 1E+6, 456.789E-3, 0.123e3]\n"
-	"	]\n"
-	"}\n";
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 
-int main() {
-	printf("---\n%s---\n", raw_json);
+#define BUFFER_SIZE 1024 * 1024
+char buffer[BUFFER_SIZE];
+
+int main(int argc, char *argv[]) {
+	if (argc < 2) {
+		fprintf(stderr, "error: missing json file parameter\n");
+		return 1;
+	}
+
+	int fd = open(argv[1], O_RDONLY);
+	if (fd < 0) {
+		perror("error to open file");
+		return 1;
+	}
+	read(fd, buffer, BUFFER_SIZE);
 
 	json_node node;
 	uint64_t start = __rdtsc();
-	bool ok = json_parse(raw_json, &node);
+	bool ok = json_parse(buffer, &node);
 	uint64_t duration = __rdtsc() - start;
-	printf("\n{{{ %lu }}}\n", duration);
 
 	if (ok) {
 		json_print(node);
 	} else {
 		printf("ERROR: %s\n", json_get_error());
 	}
+
+	printf("\n{{{ %lu }}}\n", duration);
 }

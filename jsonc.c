@@ -45,7 +45,7 @@ void eat_whitespace(parser_state *p) {
 
 static
 char *parse_string(parser_state *p) {
-	char *result = malloc(sizeof(char) * 100);
+	char *result = malloc(sizeof(char) * 512);
 	size_t i = 0;
 
 	if (*p->at != '"') {
@@ -369,7 +369,7 @@ bool json_parse(char *data, json_node *out_json) {
 
 	if (p.error) {
 		size_t col = p.at - p.line_start + 1;
-		snprintf(error_message, ERROR_MESSAGE_SIZE, "%s (line %d, col %d)",
+		snprintf(error_message, ERROR_MESSAGE_SIZE, "%s (line %zu, col %zu)",
 			p.error, p.line, col);
 		return false;
 	}
