@@ -3,9 +3,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <float.h>
+#include <assert.h>
+
+#define FIRST_ALLOC 5
+#define GROW_RATE 1.5
 
 /* TODO:
- * - proper memory management
  * - store object as hash map
  */
 
@@ -45,14 +48,22 @@ void eat_whitespace(parser_state *p) {
 
 static
 char *parse_string(parser_state *p) {
-	char *result = malloc(sizeof(char) * 512);
-	size_t i = 0;
-
 	if (*p->at != '"') {
 		p->error = "invalid token at start of string";
 		return 0;
 	}
 	p->at++;
+
+	// get rough size of string for allocation
+	size_t len = 0;
+	for (char *s = p->at; *s != '"'; s++) {
+		if (*s == '\\')
+			s++;
+		len++;
+	}
+
+	char *result = malloc(sizeof(char) * len + 1);
+	size_t i = 0;
 
 	for (;;) {
 		if (*p->at < ' ') {
@@ -134,6 +145,7 @@ char *parse_string(parser_state *p) {
 		} else {
 			result[i++] = *p->at;
 		}
+		// assert(i <= len);
 		p->at++;
 	}
 
@@ -146,7 +158,6 @@ json_node parse_node(parser_state *p);
 static
 json_object parse_object(parser_state *p) {
 	json_object result = {};
-	result.entries = malloc(sizeof(json_object_entry) * 100);
 
 	if (*p->at != '{') {
 		p->error = "invalid token at start of object";
@@ -154,12 +165,26 @@ json_object parse_object(parser_state *p) {
 	}
 	p->at++;
 
+	if (*p->at == '}') {
+		p->at++;
+		return result;
+	}
+
+	size_t capacity = FIRST_ALLOC;
+	result.entries = malloc(sizeof(json_object_entry) * capacity);
+
 	for (;;) {
 		eat_whitespace(p);
 		if (*p->at == '}') {
 			p->at++;
 			break;
 		} else if (*p->at == '"') {
+			if (result.count >= capacity) {
+				capacity *= GROW_RATE;
+				printf("realloc to %zu\n", capacity);
+				result.entries = realloc(result.entries,
+					sizeof(json_object_entry) * capacity);
+			}
 			json_object_entry *entry = result.entries + result.count++;
 			entry->key = parse_string(p);
 			if (p->error)
@@ -194,12 +219,20 @@ json_object parse_object(parser_state *p) {
 static
 json_array parse_array(parser_state *p) {
 	json_array result = {};
-	result.elements = malloc(sizeof(json_node) * 100);
+
 	if (*p->at != '[') {
 		p->error = "invalid token at start of array";
 		return result;
 	}
 	p->at++;
+
+	if (*p->at == ']') {
+		p->at++;
+		return result;
+	}
+
+	size_t capacity = FIRST_ALLOC;
+	result.elements = malloc(sizeof(json_node) * capacity);
 
 	for (;;) {
 		eat_whitespace(p);
@@ -207,6 +240,14 @@ json_array parse_array(parser_state *p) {
 			p->at++;
 			break;
 		}
+
+		if (result.count >= capacity) {
+			capacity *= GROW_RATE;
+			printf("realloc to %zu\n", capacity);
+			result.elements = realloc(result.elements,
+				sizeof(json_node) * capacity);
+		}
+
 		json_node *elem = result.elements + result.count++;
 		*elem = parse_node(p);
 		if (p->error)
@@ -378,6 +419,33 @@ bool json_parse(char *data, json_node *out_json) {
 	return true;
 }
 
+extern
+void json_free(json_node *node) {
+	switch (node->type) {
+	case JSON_OBJECT: {
+		json_object object = node->value.object;
+		for (int i = 0; i < object.count; i++) {
+			json_object_entry e = object.entries[i];
+			free(e.key);
+			json_free(&e.value);
+		}
+		free(object.entries);
+	} break;
+	case JSON_ARRAY: {
+		json_array array = node->value.array;
+		for (int i = 0; i < array.count; i++) {
+			json_free(array.elements + i);
+		}
+		free(array.elements);
+	} break;
+	case JSON_STRING:
+		free(node->value.string);
+		break;
+	default:
+		;
+	}
+}
+
 // debug
 
 static
@@ -393,7 +461,6 @@ void print_indented(json_node node, size_t indent) {
 		break;
 	case JSON_OBJECT: {
 		json_object object = node.value.object;
-		ind(indent);
 		printf("{\n");
 		indent++;
 		for (size_t i = 0; i < object.count; i++) {

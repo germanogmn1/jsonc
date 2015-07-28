@@ -27,8 +27,8 @@ typedef struct json_node {
 	json_node_type type;
 	union {
 		json_object object;
-		char *string;
 		json_array array;
+		char *string;
 		bool boolean;
 		double number;
 	} value;
@@ -46,4 +46,5 @@ typedef struct {
 
 char* json_get_error();
 bool json_parse(char *data, json_node *out_json);
+void json_free(json_node *node);
 void json_print(json_node json);

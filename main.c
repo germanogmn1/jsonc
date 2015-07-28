@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
 	json_node node;
 	uint64_t start = __rdtsc();
 	bool ok = json_parse(buffer, &node);
-	uint64_t duration = __rdtsc() - start;
+	uint64_t parse_duration = __rdtsc() - start;
 
 	if (ok) {
 		json_print(node);
@@ -34,5 +34,10 @@ int main(int argc, char *argv[]) {
 		printf("ERROR: %s\n", json_get_error());
 	}
 
-	printf("\n{{{ %lu }}}\n", duration);
+	start = __rdtsc();
+	json_free(&node);
+	uint64_t free_duration = __rdtsc() - start;
+
+	printf("\njson_parse: %lu\njson_free: %lu\n",
+		parse_duration, free_duration);
 }
