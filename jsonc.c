@@ -1,15 +1,21 @@
 #include "jsonc.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <float.h>
 #include <assert.h>
+#include <string.h>
 
-#define FIRST_ALLOC 10
-#define GROW_RATE 1.5
+#define ARRAY_INIT_SIZE 10
+#define ARRAY_GROW_RATE 1.5
+
+#define OBJECT_INIT_SIZE 20
+#define OBJECT_GROW_RATE 2
 
 /* TODO:
  * - store object as hash map
+ * - calloc instead of malloc???
+ * - handle alloc failures
+ * - free key string when using same bucket
  */
 
 typedef struct {
@@ -34,6 +40,18 @@ bool str_start_with(char *str, char *substr) {
 			return false;
 	}
 	return true;
+}
+
+static
+bool str_equals(char *a, char *b) {
+	for (;;) {
+		if (*a != *b)
+			return false;
+		if (*a == '\0')
+			return true;
+		a++;
+		b++;
+	}
 }
 
 static
@@ -155,6 +173,122 @@ char *parse_string(parser_state *p) {
 static
 json_node parse_node(parser_state *p);
 
+
+static
+uint32_t murmur3_32(char *key) {
+	uint32_t c1 = 0xcc9e2d51;
+	uint32_t c2 = 0x1b873593;
+	uint32_t r1 = 15;
+	uint32_t r2 = 13;
+	uint32_t m = 5;
+	uint32_t n = 0xe6546b64;
+
+	uint32_t hash = 42; // seed
+
+	int len = 0;
+	char *s = key;
+	while (*s++)
+		len++;
+
+	int nblocks = len / 4;
+	uint32_t *blocks = (uint32_t *) key;
+	int i;
+	for (i = 0; i < nblocks; i++) {
+		uint32_t k = blocks[i];
+		k *= c1;
+		k = (k << r1) | (k >> (32 - r1));
+		k *= c2;
+
+		hash ^= k;
+		hash = ((hash << r2) | (hash >> (32 - r2))) * m + n;
+	}
+
+	uint8_t *tail = (uint8_t *) (key + nblocks * 4);
+	uint32_t k1 = 0;
+
+	switch (len & 3) {
+	case 3:
+		k1 ^= tail[2] << 16;
+	case 2:
+		k1 ^= tail[1] << 8;
+	case 1:
+		k1 ^= tail[0];
+
+		k1 *= c1;
+		k1 = (k1 << r1) | (k1 >> (32 - r1));
+		k1 *= c2;
+		hash ^= k1;
+	}
+
+	hash ^= len;
+	hash ^= (hash >> 16);
+	hash *= 0x85ebca6b;
+	hash ^= (hash >> 13);
+	hash *= 0xc2b2ae35;
+	hash ^= (hash >> 16);
+
+	return hash;
+}
+
+static
+json_object_entry *object_find_bucket(json_object *obj, char *key) {
+	uint32_t hash = murmur3_32(key);
+	uint32_t bucket = hash % obj->capacity;
+
+	// linear probing
+	for (uint32_t i = bucket; i < obj->capacity; i++) {
+		json_object_entry *entry = obj->buckets + i;
+		if (!entry->key || str_equals(key, entry->key)) {
+			return entry;
+		}
+	}
+
+	return 0;
+}
+
+static
+void object_rehash(json_object *obj) {
+	json_object new_obj = {};
+	new_obj.capacity = OBJECT_GROW_RATE * obj->capacity;
+	size_t size = new_obj.capacity * sizeof(json_object_entry);
+	new_obj.buckets = malloc(size);
+	memset(new_obj.buckets, 0, size);
+
+	for (uint32_t i = 0; i < obj->capacity; i++) {
+		json_object_entry *old_entry = obj->buckets + i;
+		if (old_entry->key) {
+			json_object_entry *new_entry = object_find_bucket(&new_obj, old_entry->key);
+			new_entry->key = old_entry->key;
+			new_entry->value = old_entry->value;
+		}
+	}
+
+	free(obj->buckets);
+	*obj = new_obj;
+}
+
+static
+void object_set(json_object *obj, char *key, json_node value) {
+	json_object_entry *entry = object_find_bucket(obj, key);
+	if (!entry) {
+		object_rehash(obj);
+		entry = object_find_bucket(obj, key);
+		assert(entry);
+	}
+	entry->key = key;
+	entry->value = value;
+}
+
+extern
+json_node *json_get(json_object *obj, char *key) {
+	json_object_entry *entry = object_find_bucket(obj, key);
+	if (entry->key) {
+		return &entry->value;
+	} else {
+		return 0;
+	}
+}
+
 static
 json_object parse_object(parser_state *p) {
 	json_object result = {};
@@ -170,8 +304,10 @@ json_object parse_object(parser_state *p) {
 		return result;
 	}
 
-	size_t capacity = FIRST_ALLOC;
-	result.entries = malloc(sizeof(json_object_entry) * capacity);
+	result.capacity = OBJECT_INIT_SIZE;
+	size_t size = sizeof(json_object_entry) * result.capacity;
+	result.buckets = malloc(size);
+	memset(result.buckets, 0, size);
 
 	for (;;) {
 		eat_whitespace(p);
@@ -179,14 +315,7 @@ json_object parse_object(parser_state *p) {
 			p->at++;
 			break;
 		} else if (*p->at == '"') {
-			if (result.count >= capacity) {
-				capacity *= GROW_RATE;
-				printf("realloc to %zu\n", capacity);
-				result.entries = realloc(result.entries,
-					sizeof(json_object_entry) * capacity);
-			}
-			json_object_entry *entry = result.entries + result.count++;
-			entry->key = parse_string(p);
+			char *key = parse_string(p);
 			if (p->error)
 				return result;
 
@@ -197,9 +326,12 @@ json_object parse_object(parser_state *p) {
 			}
 			p->at++;
 			eat_whitespace(p);
-			entry->value = parse_node(p);
+
+			json_node value = parse_node(p);
 			if (p->error)
 				return result;
+
+			object_set(&result, key, value);
 
 			eat_whitespace(p);
 			if (*p->at == ',') {
@@ -231,7 +363,7 @@ json_array parse_array(parser_state *p) {
 		return result;
 	}
 
-	size_t capacity = FIRST_ALLOC;
+	size_t capacity = ARRAY_INIT_SIZE;
 	result.elements = malloc(sizeof(json_node) * capacity);
 
 	for (;;) {
@@ -242,7 +374,7 @@ json_array parse_array(parser_state *p) {
 		}
 
 		if (result.count >= capacity) {
-			capacity *= GROW_RATE;
+			capacity *= ARRAY_GROW_RATE;
 			printf("realloc to %zu\n", capacity);
 			result.elements = realloc(result.elements,
 				sizeof(json_node) * capacity);
@@ -424,12 +556,14 @@ void json_free(json_node *node) {
 	switch (node->type) {
 	case JSON_OBJECT: {
 		json_object object = node->object;
-		for (int i = 0; i < object.count; i++) {
-			json_object_entry e = object.entries[i];
-			free(e.key);
-			json_free(&e.value);
+		for (int i = 0; i < object.capacity; i++) {
+			json_object_entry e = object.buckets[i];
+			if (e.key) {
+				free(e.key);
+				json_free(&e.value);
+			}
 		}
-		free(object.entries);
+		free(object.buckets);
 	} break;
 	case JSON_ARRAY: {
 		json_array array = node->array;
@@ -446,6 +580,7 @@ void json_free(json_node *node) {
 	}
 }
 
+#if 0
 // debug
 
 static
@@ -464,7 +599,7 @@ void print_indented(json_node node, size_t indent) {
 		printf("{\n");
 		indent++;
 		for (size_t i = 0; i < object.count; i++) {
-			json_object_entry *entry = object.entries + i;
+			json_object_entry *entry = object.buckets + i;
 			ind(indent);
 			printf("\"%s\": ", entry->key);
 			print_indented(entry->value, indent);
@@ -518,3 +653,4 @@ void json_print(json_node json) {
 	print_indented(json, 0);
 	printf("\n");
 }
+#endif

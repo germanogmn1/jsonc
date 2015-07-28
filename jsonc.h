@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef enum {
 	JSON_NULL,
@@ -14,8 +15,8 @@ struct json_object_entry;
 struct json_node;
 
 typedef struct {
-	struct json_object_entry *entries;
-	size_t count;
+	struct json_object_entry *buckets;
+	uint32_t capacity;
 } json_object;
 
 typedef struct {
@@ -44,7 +45,8 @@ typedef struct {
 	json_node json;
 } json_parse_result;
 
-char* json_get_error();
+char *json_get_error();
 bool json_parse(char *data, json_node *out_json);
 void json_free(json_node *node);
+json_node *json_get(json_object *obj, char *key);
 void json_print(json_node json);

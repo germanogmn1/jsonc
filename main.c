@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <x86intrin.h>
 #include "jsonc.h"
-#include <stdint.h>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -29,7 +28,7 @@ int main(int argc, char *argv[]) {
 	uint64_t parse_duration = __rdtsc() - start;
 
 	if (ok) {
-		json_print(node);
+		// json_print(node);
 	} else {
 		printf("ERROR: %s\n", json_get_error());
 	}
