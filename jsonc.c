@@ -5,7 +5,7 @@
 #include <float.h>
 #include <assert.h>
 
-#define FIRST_ALLOC 5
+#define FIRST_ALLOC 10
 #define GROW_RATE 1.5
 
 /* TODO:
@@ -358,24 +358,24 @@ json_node parse_node(parser_state *p) {
 
 	if (*p->at == '{') {
 		result.type = JSON_OBJECT;
-		result.value.object = parse_object(p);
+		result.object = parse_object(p);
 	} else if (*p->at == '[') {
 		result.type = JSON_ARRAY;
-		result.value.array = parse_array(p);
+		result.array = parse_array(p);
 	} else if (*p->at == '"') {
 		result.type = JSON_STRING;
-		result.value.string = parse_string(p);
+		result.string = parse_string(p);
 	} else if (*p->at == '-' || (*p->at >= '0' && *p->at <= '9')) {
 		result.type = JSON_NUMBER;
-		result.value.number = parse_number(p);
+		result.number = parse_number(p);
 	} else if (str_start_with(p->at, "true")) {
 		p->at += 4;
 		result.type = JSON_BOOL;
-		result.value.boolean = true;
+		result.boolean = true;
 	} else if (str_start_with(p->at, "false")) {
 		p->at += 5;
 		result.type = JSON_BOOL;
-		result.value.boolean = false;
+		result.boolean = false;
 	} else if (str_start_with(p->at, "null")) {
 		p->at += 4;
 		result.type = JSON_NULL;
@@ -423,7 +423,7 @@ extern
 void json_free(json_node *node) {
 	switch (node->type) {
 	case JSON_OBJECT: {
-		json_object object = node->value.object;
+		json_object object = node->object;
 		for (int i = 0; i < object.count; i++) {
 			json_object_entry e = object.entries[i];
 			free(e.key);
@@ -432,14 +432,14 @@ void json_free(json_node *node) {
 		free(object.entries);
 	} break;
 	case JSON_ARRAY: {
-		json_array array = node->value.array;
+		json_array array = node->array;
 		for (int i = 0; i < array.count; i++) {
 			json_free(array.elements + i);
 		}
 		free(array.elements);
 	} break;
 	case JSON_STRING:
-		free(node->value.string);
+		free(node->string);
 		break;
 	default:
 		;
@@ -460,7 +460,7 @@ void print_indented(json_node node, size_t indent) {
 		printf("null");
 		break;
 	case JSON_OBJECT: {
-		json_object object = node.value.object;
+		json_object object = node.object;
 		printf("{\n");
 		indent++;
 		for (size_t i = 0; i < object.count; i++) {
@@ -478,7 +478,7 @@ void print_indented(json_node node, size_t indent) {
 		printf("}");
 	} break;
 	case JSON_ARRAY: {
-		json_array array = node.value.array;
+		json_array array = node.array;
 
 		printf("[\n");
 		indent++;
@@ -499,13 +499,13 @@ void print_indented(json_node node, size_t indent) {
 		printf("]");
 	} break;
 	case JSON_STRING:
-		printf("\"%s\"", node.value.string);
+		printf("\"%s\"", node.string);
 		break;
 	case JSON_NUMBER:
-		printf("%f", node.value.number);
+		printf("%f", node.number);
 		break;
 	case JSON_BOOL:
-		if (node.value.boolean)
+		if (node.boolean)
 			printf("true");
 		else
 			printf("false");

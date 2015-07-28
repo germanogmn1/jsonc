@@ -31,7 +31,7 @@ typedef struct json_node {
 		char *string;
 		bool boolean;
 		double number;
-	} value;
+	};
 } json_node;
 
 typedef struct json_object_entry {
