@@ -5,11 +5,13 @@
 #include <assert.h>
 #include <string.h>
 
+// Allocation def's
 #define ARRAY_INIT_SIZE 10
 #define ARRAY_GROW_RATE 1.5
-
 #define OBJECT_INIT_SIZE 20
 #define OBJECT_GROW_RATE 2
+#define FORMAT_BUF_INIT_SIZE 256
+#define FORMAT_BUF_GROW_RATE 2
 
 /* TODO:
  * - implement a proper json_print
@@ -671,9 +673,85 @@ void print_indented(json_node node, size_t indent) {
 	}
 }
 
+typedef struct {
+	char* data;
+	size_t used;
+	size_t capacity;
+} buffer;
+
+
+static
+void bgrow(buffer *b) {
+	b->capacity *= FORMAT_BUF_GROW_RATE;
+	b->data = realloc(b->data, b->capacity * sizeof(char));
+}
+
+static
+void bpush(buffer *b, char *str) {
+	while (*str && b->capacity > b->used) {
+		b->data[b->used++] = *str++;
+	}
+	// ran out of space before the end of string
+	if (*str) {
+		bgrow(b);
+		append(b, str);
+	}
+}
+
+static
+bpushc(buffer *b, char c) {
+	if (b->capacity <= b->used)
+		bgrow(b);
+	b->data[b->used++] = c;
+}
+
 extern
-void json_print(json_node json) {
-	print_indented(json, 0);
-	printf("\n");
+char *json_generate(json_node *node) {
+	buffer b = {};
+	b.capacity = FORMAT_BUF_INIT_SIZE;
+	b.data = malloc(b.capacity * sizeof(char));
+	if (!b.data)
+		return 0;
+
+	switch (node.type) {
+	case JSON_NULL:
+		bpush(&b, "null");
+		break;
+	case JSON_OBJECT: {
+		json_object *object = node->object;
+		bool first = true;
+		for (uint32_t i = 0; i < object->capacity; i++) {
+			json_object_entry *entry = object->buckets + i;
+			if (!entry->key)
+				continue;
+			if (first)
+				first = false;
+			else
+				bpush(&b, ",");
+
+			bpushc(&b, '"');
+			bpush(&b, entry->key); // TODO
+			bpushc(&b, '"');
+
+			print_indented(entry->value, indent);
+		}
+		printf("\n");
+		indent--;
+		ind(indent);
+		printf("}");
+	} break;
+	case JSON_ARRAY:
+
+		break;
+	case JSON_STRING:
+
+		break;
+	case JSON_NUMBER:
+
+		break;
+	case JSON_BOOL:
+
+		break;
+	}
 }
 #endif
