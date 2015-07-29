@@ -21,7 +21,7 @@ typedef struct {
 
 typedef struct {
 	struct json_node *elements;
-	size_t count;
+	uint32_t count;
 } json_array;
 
 typedef struct json_node {

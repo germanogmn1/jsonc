@@ -11,8 +11,9 @@
 #define OBJECT_INIT_SIZE 20
 #define OBJECT_GROW_RATE 2
 
+#define dprintf(...)
+
 /* TODO:
- * - store object as hash map
  * - calloc instead of malloc???
  * - handle alloc failures
  * - free key string when using same bucket
@@ -163,7 +164,7 @@ char *parse_string(parser_state *p) {
 		} else {
 			result[i++] = *p->at;
 		}
-		// assert(i <= len);
+		assert(i <= len);
 		p->at++;
 	}
 
@@ -234,22 +235,33 @@ static
 json_object_entry *object_find_bucket(json_object *obj, char *key) {
 	uint32_t hash = murmur3_32(key);
 	uint32_t bucket = hash % obj->capacity;
+	json_object_entry *result = 0;
 
 	// linear probing
+	dprintf("\t\tprobing %s:", key);
 	for (uint32_t i = bucket; i < obj->capacity; i++) {
 		json_object_entry *entry = obj->buckets + i;
+		dprintf(" [%u '%s']", i, entry->key ? entry->key : "");
 		if (!entry->key || str_equals(key, entry->key)) {
-			return entry;
+			result = entry;
+			break;
 		}
 	}
 
-	return 0;
+	if (result)
+		dprintf(" found");
+	else
+		dprintf(" not found");
+	dprintf("\n");
+
+	return result;
 }
 
 static
 void object_rehash(json_object *obj) {
 	json_object new_obj = {};
 	new_obj.capacity = OBJECT_GROW_RATE * obj->capacity;
+	dprintf("grow hash to %d\n", new_obj.capacity);
 	size_t size = new_obj.capacity * sizeof(json_object_entry);
 	new_obj.buckets = malloc(size);
 	memset(new_obj.buckets, 0, size);
@@ -269,11 +281,11 @@ void object_rehash(json_object *obj) {
 
 static
 void object_set(json_object *obj, char *key, json_node value) {
+	dprintf("\tset %s (%u of %u)\n", key, murmur3_32(key) % obj->capacity, obj->capacity);
 	json_object_entry *entry = object_find_bucket(obj, key);
-	if (!entry) {
+	while (!entry) {
 		object_rehash(obj);
 		entry = object_find_bucket(obj, key);
-		assert(entry);
 	}
 	entry->key = key;
 	entry->value = value;
@@ -308,11 +320,13 @@ json_object parse_object(parser_state *p) {
 	size_t size = sizeof(json_object_entry) * result.capacity;
 	result.buckets = malloc(size);
 	memset(result.buckets, 0, size);
+	dprintf("make new object\n");
 
 	for (;;) {
 		eat_whitespace(p);
 		if (*p->at == '}') {
 			p->at++;
+			dprintf("end object\n");
 			break;
 		} else if (*p->at == '"') {
 			char *key = parse_string(p);
@@ -363,7 +377,7 @@ json_array parse_array(parser_state *p) {
 		return result;
 	}
 
-	size_t capacity = ARRAY_INIT_SIZE;
+	uint32_t capacity = ARRAY_INIT_SIZE;
 	result.elements = malloc(sizeof(json_node) * capacity);
 
 	for (;;) {
@@ -375,7 +389,7 @@ json_array parse_array(parser_state *p) {
 
 		if (result.count >= capacity) {
 			capacity *= ARRAY_GROW_RATE;
-			printf("realloc to %zu\n", capacity);
+			dprintf("realloc to %d\n", capacity);
 			result.elements = realloc(result.elements,
 				sizeof(json_node) * capacity);
 		}
@@ -580,7 +594,7 @@ void json_free(json_node *node) {
 	}
 }
 
-#if 0
+#if 1
 // debug
 
 static
@@ -598,16 +612,21 @@ void print_indented(json_node node, size_t indent) {
 		json_object object = node.object;
 		printf("{\n");
 		indent++;
-		for (size_t i = 0; i < object.count; i++) {
+		bool first = true;
+		for (uint32_t i = 0; i < object.capacity; i++) {
 			json_object_entry *entry = object.buckets + i;
+			if (!entry->key)
+				continue;
+			if (first) {
+				first = false;
+			} else {
+				printf(",\n");
+			}
 			ind(indent);
 			printf("\"%s\": ", entry->key);
 			print_indented(entry->value, indent);
-			if (i < object.count - 1)
-				printf(",\n");
-			else
-				printf("\n");
 		}
+		printf("\n");
 		indent--;
 		ind(indent);
 		printf("}");
