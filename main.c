@@ -29,9 +29,10 @@ int main(int argc, char *argv[]) {
 	uint64_t parse_duration = __rdtsc() - start;
 
 	if (ok) {
-		#if 0
+		printf("\n--- Printing JSON ---\n\n");
 		json_print(node);
-		#else
+
+		printf("\n--- Querying JSON ---\n\n");
 		assert(node.type == JSON_ARRAY);
 		for (uint32_t i = 0; i < node.array.count; i++) {
 			json_node element = node.array.elements[i];
@@ -49,7 +50,6 @@ int main(int argc, char *argv[]) {
 				printf("* %s\n", name->string);
 			}
 		}
-		#endif
 	} else {
 		printf("ERROR: %s\n", json_get_error());
 	}

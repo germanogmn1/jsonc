@@ -12,9 +12,7 @@
 #define OBJECT_GROW_RATE 2
 
 /* TODO:
- * - calloc instead of malloc???
- * - handle alloc failures
- * - free key string when using same bucket
+ * - implement a proper json_print
  */
 
 typedef struct {
@@ -80,6 +78,10 @@ char *parse_string(parser_state *p) {
 	}
 
 	char *result = malloc(sizeof(char) * len + 1);
+	if (!result) {
+		p->error = "out of memory";
+		return 0;
+	}
 	size_t i = 0;
 
 	for (;;) {
@@ -251,9 +253,9 @@ static
 void object_rehash(json_object *obj) {
 	json_object new_obj = {};
 	new_obj.capacity = OBJECT_GROW_RATE * obj->capacity;
-	size_t size = new_obj.capacity * sizeof(json_object_entry);
-	new_obj.buckets = malloc(size);
-	memset(new_obj.buckets, 0, size);
+	new_obj.buckets = calloc(new_obj.capacity, sizeof(json_object_entry));
+	if (!new_obj.buckets)
+		return;
 
 	for (uint32_t i = 0; i < obj->capacity; i++) {
 		json_object_entry *old_entry = obj->buckets + i;
@@ -269,14 +271,20 @@ void object_rehash(json_object *obj) {
 }
 
 static
-void object_set(json_object *obj, char *key, json_node value) {
+bool object_set(json_object *obj, char *key, json_node value) {
 	json_object_entry *entry = object_find_bucket(obj, key);
 	while (!entry) {
 		object_rehash(obj);
+		if (!obj->buckets)
+			return false;
 		entry = object_find_bucket(obj, key);
 	}
+	if (entry->key) // replacing existing key
+		free(entry->key);
+
 	entry->key = key;
 	entry->value = value;
+	return true;
 }
 
 extern
@@ -305,9 +313,11 @@ json_object parse_object(parser_state *p) {
 	}
 
 	result.capacity = OBJECT_INIT_SIZE;
-	size_t size = sizeof(json_object_entry) * result.capacity;
-	result.buckets = malloc(size);
-	memset(result.buckets, 0, size);
+	result.buckets = calloc(result.capacity, sizeof(json_object_entry));
+	if (!result.buckets) {
+		p->error = "out of memory";
+		return result;
+	}
 
 	for (;;) {
 		eat_whitespace(p);
@@ -331,7 +341,10 @@ json_object parse_object(parser_state *p) {
 			if (p->error)
 				return result;
 
-			object_set(&result, key, value);
+			if (!object_set(&result, key, value)) {
+				p->error = "out of memory";
+				return result;
+			}
 
 			eat_whitespace(p);
 			if (*p->at == ',') {
@@ -364,7 +377,11 @@ json_array parse_array(parser_state *p) {
 	}
 
 	uint32_t capacity = ARRAY_INIT_SIZE;
-	result.elements = malloc(sizeof(json_node) * capacity);
+	result.elements = malloc(capacity * sizeof(json_node));
+	if (!result.elements) {
+		p->error = "out of memory";
+		return result;
+	}
 
 	for (;;) {
 		eat_whitespace(p);
@@ -377,6 +394,10 @@ json_array parse_array(parser_state *p) {
 			capacity *= ARRAY_GROW_RATE;
 			result.elements = realloc(result.elements,
 				sizeof(json_node) * capacity);
+			if (!result.elements) {
+				p->error = "out of memory";
+				return result;
+			}
 		}
 
 		json_node *elem = result.elements + result.count++;

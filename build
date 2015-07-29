@@ -1,3 +1,12 @@
 #!/usr/bin/env bash
 
-clang main.c jsonc.c -Wall --std=c99 -O2 -o main
+flags='main.c jsonc.c -Wall --std=c99 -o main'
+
+case $1 in
+fast)
+	clang $flags -O2 -D NDEBUG
+	;;
+*)
+	clang $flags
+	;;
+esac
