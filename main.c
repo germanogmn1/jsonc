@@ -29,7 +29,7 @@ int main(int argc, char *argv[]) {
 	uint64_t parse_duration = __rdtsc() - start;
 
 	if (ok) {
-		#if 1
+		#if 0
 		json_print(node);
 		#else
 		assert(node.type == JSON_ARRAY);
