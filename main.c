@@ -30,33 +30,49 @@ int main(int argc, char *argv[]) {
 
 	uint64_t gen_duration = 0;
 	if (ok) {
-		printf("\n--- Printing JSON ---\n\n");
-		char *enc;
+		{
+			printf("\n--- Parsing and printing JSON ---\n\n");
+			char *enc;
 
-		start = __rdtsc();
-		json_generate(&node, &enc, "    ");
-		gen_duration = __rdtsc() - start;
+			start = __rdtsc();
+			json_generate(&node, &enc, "    ");
+			gen_duration = __rdtsc() - start;
 
-		printf("%s\n", enc);
-		free(enc);
+			printf("%s\n", enc);
+			free(enc);
+		}
 
-		printf("\n--- Querying JSON ---\n\n");
-		assert(node.type == JSON_ARRAY);
-		for (uint32_t i = 0; i < node.array.count; i++) {
-			json_node element = node.array.elements[i];
-			assert(element.type == JSON_OBJECT);
-			json_object obj = element.object;
-			json_node* friends = json_get(&obj, "friends");
-			assert(friends);
-			assert(friends->type == JSON_ARRAY);
-			for (uint32_t j = 0; j < friends->array.count; j++) {
-				json_node e = friends->array.elements[j];
-				assert(e.type == JSON_OBJECT);
-				json_node* name = json_get(&e.object, "name");
-				assert(name);
-				assert(name->type == JSON_STRING);
-				printf("* %s\n", name->string);
+		{
+			printf("\n--- Querying JSON ---\n\n");
+			assert(node.type == JSON_ARRAY);
+			for (uint32_t i = 0; i < node.array.count; i++) {
+				json_node element = node.array.elements[i];
+				assert(element.type == JSON_OBJECT);
+				json_object obj = element.object;
+				json_node* friends = json_get(&obj, "friends");
+				assert(friends);
+				assert(friends->type == JSON_ARRAY);
+				for (uint32_t j = 0; j < friends->array.count; j++) {
+					json_node e = friends->array.elements[j];
+					assert(e.type == JSON_OBJECT);
+					json_node* name = json_get(&e.object, "name");
+					assert(name);
+					assert(name->type == JSON_STRING);
+					printf("* %s\n", name->string);
+				}
 			}
+		}
+
+		{
+			printf("\n--- Generate JSON ---\n\n");
+			json_node root = {};
+			root.type = JSON_ARRAY;
+			json_init_array(&root.array);
+
+			json_node obj = {};
+			obj.type = JSON_OBJECT;
+			bool ok = json_init_object(&obj.object);
+			assert(ok);
 		}
 	} else {
 		printf("ERROR: %s\n", json_get_error());

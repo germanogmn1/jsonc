@@ -13,7 +13,7 @@
 #define BUFFER_INIT_SIZE 256
 #define BUFFER_GROW_RATE 2
 
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
+#define ARRAY_SIZE(a) (sizeof(a) / siz.eof(a[0]))
 
 /*
  * Parser
@@ -272,8 +272,15 @@ void object_rehash(json_object *obj) {
 	*obj = new_obj;
 }
 
-static
-bool object_set(json_object *obj, char *key, json_node value) {
+extern
+bool json_init_object(json_object *obj) {
+	obj->capacity = OBJECT_INIT_SIZE;
+	obj->buckets = calloc(obj->capacity, sizeof(json_object_entry));
+	return !!obj->buckets;
+}
+
+extern
+bool json_set(json_object *obj, char *key, json_node value) {
 	json_object_entry *entry = object_find_bucket(obj, key);
 	while (!entry) {
 		object_rehash(obj);
@@ -314,9 +321,7 @@ json_object parse_object(parser_state *p) {
 		return result;
 	}
 
-	result.capacity = OBJECT_INIT_SIZE;
-	result.buckets = calloc(result.capacity, sizeof(json_object_entry));
-	if (!result.buckets) {
+	if (!json_init_object(&result)) {
 		p->error = "out of memory";
 		return result;
 	}
@@ -343,7 +348,7 @@ json_object parse_object(parser_state *p) {
 			if (p->error)
 				return result;
 
-			if (!object_set(&result, key, value)) {
+			if (!json_set(&result, key, value)) {
 				p->error = "out of memory";
 				return result;
 			}
@@ -363,6 +368,27 @@ json_object parse_object(parser_state *p) {
 	return result;
 }
 
+extern
+bool json_init_array(json_array *array) {
+	uint32_t array->capacity = ARRAY_INIT_SIZE;
+	array->elements = malloc(array->capacity * sizeof(json_node));
+	return !!array->elements;
+}
+
+extern
+bool json_append(json_array *array, json_node element) {
+	if (array->count >= array->capacity) {
+		array->capacity *= ARRAY_GROW_RATE;
+		array->elements = realloc(array->elements,
+			sizeof(json_node) * array->capacity);
+		if (!array->elements) {
+			return false;
+		}
+	}
+	array->elements[array->count++] = element;
+	return true;
+}
+
 static
 json_array parse_array(parser_state *p) {
 	json_array result = {};
@@ -378,9 +404,7 @@ json_array parse_array(parser_state *p) {
 		return result;
 	}
 
-	uint32_t capacity = ARRAY_INIT_SIZE;
-	result.elements = malloc(capacity * sizeof(json_node));
-	if (!result.elements) {
+	if (!json_init_array(&result)) {
 		p->error = "out of memory";
 		return result;
 	}
@@ -392,20 +416,13 @@ json_array parse_array(parser_state *p) {
 			break;
 		}
 
-		if (result.count >= capacity) {
-			capacity *= ARRAY_GROW_RATE;
-			result.elements = realloc(result.elements,
-				sizeof(json_node) * capacity);
-			if (!result.elements) {
-				p->error = "out of memory";
-				return result;
-			}
-		}
-
-		json_node *elem = result.elements + result.count++;
-		*elem = parse_node(p);
+		json_node elem = parse_node(p);
 		if (p->error)
 			return result;
+		if (!json_append(&result, elem)) {
+			p->error = "out of memory";
+			return result;
+		}
 
 		eat_whitespace(p);
 		if (*p->at == ',') {
@@ -414,6 +431,7 @@ json_array parse_array(parser_state *p) {
 			p->error = "expected comma or end of array";
 			return result;
 		}
+
 	}
 
 	return result;

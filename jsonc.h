@@ -54,5 +54,12 @@ typedef struct {
 char *json_get_error();
 bool json_parse(char *data, json_node *out_json);
 void json_free(json_node *node);
+
+bool json_init_array(json_array *array);
+bool json_append(json_array *array, json_node value);
+
+bool json_init_object(json_object *obj);
 json_node *json_get(json_object *obj, char *key);
+bool json_set(json_object *obj, char *key, json_node value);
+
 size_t json_generate(json_node *node, char **out, char *indent);
