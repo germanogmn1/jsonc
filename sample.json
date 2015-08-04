@@ -10,6 +10,11 @@
         "email": "tamaramendez@digifad.com",
         "eyeColor": "green",
         "favoriteFruit": "banana",
+        "numbers": [
+            1.23456789012345678e21,
+            1.23456789012345678e-21,
+            0.00001
+        ],
         "friends": [
             {
                 "id": 0,

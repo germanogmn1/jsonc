@@ -11,6 +11,12 @@ typedef enum {
 	JSON_BOOL,
 } json_node_type;
 
+typedef enum {
+	JSON_SUCCESS,
+	JSON_ESYNTAX,
+	JSON_EALLOC,
+} json_error;
+
 struct json_object_entry;
 struct json_node;
 
@@ -49,4 +55,4 @@ char *json_get_error();
 bool json_parse(char *data, json_node *out_json);
 void json_free(json_node *node);
 json_node *json_get(json_object *obj, char *key);
-void json_print(json_node json);
+size_t json_generate(json_node *node, char **out);

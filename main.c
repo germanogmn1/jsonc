@@ -28,9 +28,16 @@ int main(int argc, char *argv[]) {
 	bool ok = json_parse(buffer, &node);
 	uint64_t parse_duration = __rdtsc() - start;
 
+	uint64_t gen_duration = 0;
 	if (ok) {
 		printf("\n--- Printing JSON ---\n\n");
-		json_print(node);
+		char *enc;
+
+		start = __rdtsc();
+		json_generate(&node, &enc);
+		gen_duration = __rdtsc() - start;
+
+		printf("%s\n", enc);
 
 		printf("\n--- Querying JSON ---\n\n");
 		assert(node.type == JSON_ARRAY);
@@ -58,6 +65,6 @@ int main(int argc, char *argv[]) {
 	json_free(&node);
 	uint64_t free_duration = __rdtsc() - start;
 
-	printf("\njson_parse: %lu\njson_free: %lu\n",
-		parse_duration, free_duration);
+	printf("\njson_parse: %lu\njson_free: %lu\njson_generate: %lu\n",
+		parse_duration, free_duration, gen_duration);
 }

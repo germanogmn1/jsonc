@@ -3,18 +3,20 @@
 #include <stdlib.h>
 #include <float.h>
 #include <assert.h>
-#include <string.h>
+#include <math.h>
 
 // Allocation def's
 #define ARRAY_INIT_SIZE 10
 #define ARRAY_GROW_RATE 1.5
 #define OBJECT_INIT_SIZE 20
 #define OBJECT_GROW_RATE 2
-#define FORMAT_BUF_INIT_SIZE 256
-#define FORMAT_BUF_GROW_RATE 2
+#define BUFFER_INIT_SIZE 256
+#define BUFFER_GROW_RATE 2
 
-/* TODO:
- * - implement a proper json_print
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
+
+/*
+ * Parser
  */
 
 typedef struct {
@@ -24,8 +26,7 @@ typedef struct {
 	size_t line;
 } parser_state;
 
-#define ERROR_MESSAGE_SIZE 100
-static char error_message[ERROR_MESSAGE_SIZE];
+static char error_message[100];
 
 extern
 char *json_get_error() {
@@ -175,7 +176,6 @@ char *parse_string(parser_state *p) {
 
 static
 json_node parse_node(parser_state *p);
-
 
 static
 uint32_t murmur3_32(char *key) {
@@ -564,8 +564,8 @@ bool json_parse(char *data, json_node *out_json) {
 
 	if (p.error) {
 		size_t col = p.at - p.line_start + 1;
-		snprintf(error_message, ERROR_MESSAGE_SIZE, "%s (line %zu, col %zu)",
-			p.error, p.line, col);
+		snprintf(error_message, ARRAY_SIZE(error_message),
+			"%s (line %zu, col %zu)", p.error, p.line, col);
 		return false;
 	}
 
@@ -602,76 +602,9 @@ void json_free(json_node *node) {
 	}
 }
 
-#if 1
-static
-void ind(size_t i) {
-	while (i--)	printf("\t");
-}
-
-static
-void print_indented(json_node node, size_t indent) {
-	switch (node.type) {
-	case JSON_NULL:
-		printf("null");
-		break;
-	case JSON_OBJECT: {
-		json_object object = node.object;
-		printf("{\n");
-		indent++;
-		bool first = true;
-		for (uint32_t i = 0; i < object.capacity; i++) {
-			json_object_entry *entry = object.buckets + i;
-			if (!entry->key)
-				continue;
-			if (first) {
-				first = false;
-			} else {
-				printf(",\n");
-			}
-			ind(indent);
-			printf("\"%s\": ", entry->key);
-			print_indented(entry->value, indent);
-		}
-		printf("\n");
-		indent--;
-		ind(indent);
-		printf("}");
-	} break;
-	case JSON_ARRAY: {
-		json_array array = node.array;
-
-		printf("[\n");
-		indent++;
-
-		for (size_t i = 0; i < array.count; i++) {
-			json_node *elem = array.elements + i;
-			ind(indent);
-			print_indented(*elem, indent);
-
-			if (i < array.count - 1)
-				printf(",\n");
-			else
-				printf("\n");
-		}
-
-		indent--;
-		ind(indent);
-		printf("]");
-	} break;
-	case JSON_STRING:
-		printf("\"%s\"", node.string);
-		break;
-	case JSON_NUMBER:
-		printf("%f", node.number);
-		break;
-	case JSON_BOOL:
-		if (node.boolean)
-			printf("true");
-		else
-			printf("false");
-		break;
-	}
-}
+/*
+ * Generator
+ */
 
 typedef struct {
 	char* data;
@@ -679,46 +612,99 @@ typedef struct {
 	size_t capacity;
 } buffer;
 
-
 static
 void bgrow(buffer *b) {
-	b->capacity *= FORMAT_BUF_GROW_RATE;
+	b->capacity *= BUFFER_GROW_RATE;
 	b->data = realloc(b->data, b->capacity * sizeof(char));
 }
 
 static
-void bpush(buffer *b, char *str) {
+void bputs(buffer *b, char *str) {
 	while (*str && b->capacity > b->used) {
 		b->data[b->used++] = *str++;
 	}
 	// ran out of space before the end of string
 	if (*str) {
 		bgrow(b);
-		append(b, str);
+		bputs(b, str);
 	}
 }
 
 static
-bpushc(buffer *b, char c) {
+void bputc(buffer *b, char c) {
 	if (b->capacity <= b->used)
 		bgrow(b);
 	b->data[b->used++] = c;
 }
 
-extern
-char *json_generate(json_node *node) {
-	buffer b = {};
-	b.capacity = FORMAT_BUF_INIT_SIZE;
-	b.data = malloc(b.capacity * sizeof(char));
-	if (!b.data)
-		return 0;
+static
+char xdigits[16] = "0123456789abcdef";
 
-	switch (node.type) {
+static
+void gen_string(buffer *b, char* str) {
+	bputc(b, '"');
+	while (*str) {
+		char c = *str++;
+		switch (c) {
+		case '\b':
+			bputs(b, "\\b");
+			break;
+		case '\t':
+			bputs(b, "\\t");
+			break;
+		case '\n':
+			bputs(b, "\\n");
+			break;
+		case '\f':
+			bputs(b, "\\f");
+			break;
+		case '\r':
+			bputs(b, "\\r");
+			break;
+		case '"':
+			bputs(b, "\\\"");
+			break;
+		case '\\':
+			bputs(b, "\\\\");
+			break;
+		default:
+			if (c < ' ') { // control character
+				char *unicode = "\\u0000";
+				unicode[4] = xdigits[c >> 4];
+				unicode[5] = xdigits[c & 0xf];
+				bputs(b, unicode);
+			} else {
+				bputc(b, c);
+			}
+		}
+	}
+	bputc(b, '"');
+}
+
+static char number_buf[128];
+
+#define Q(x) #x
+#define QUOTE(x) Q(x)
+
+static
+void gen_number(buffer *b, double n) {
+	if (isfinite(n)) {
+		snprintf(number_buf, ARRAY_SIZE(number_buf), "%." QUOTE(DBL_DIG) "g", n);
+		bputs(b, number_buf);
+	} else {
+		bputs(b, "null");
+	}
+}
+
+static
+void gen_node(buffer *b, json_node *node) {
+	switch (node->type) {
 	case JSON_NULL:
-		bpush(&b, "null");
+		bputs(b, "null");
 		break;
 	case JSON_OBJECT: {
-		json_object *object = node->object;
+		json_object *object = &node->object;
+		bputc(b, '{');
 		bool first = true;
 		for (uint32_t i = 0; i < object->capacity; i++) {
 			json_object_entry *entry = object->buckets + i;
@@ -727,31 +713,48 @@ char *json_generate(json_node *node) {
 			if (first)
 				first = false;
 			else
-				bpush(&b, ",");
+				bputc(b, ',');
 
-			bpushc(&b, '"');
-			bpush(&b, entry->key); // TODO
-			bpushc(&b, '"');
-
-			print_indented(entry->value, indent);
+			gen_string(b, entry->key);
+			bputc(b, ':');
+			gen_node(b, &entry->value);
 		}
-		printf("\n");
-		indent--;
-		ind(indent);
-		printf("}");
+		bputc(b, '}');
 	} break;
-	case JSON_ARRAY:
-
-		break;
+	case JSON_ARRAY: {
+		json_array *array = &node->array;
+		bputc(b, '[');
+		bool first = true;
+		for (uint32_t i = 0; i < array->count; i++) {
+			json_node *element = array->elements + i;
+			if (first)
+				first = false;
+			else
+				bputc(b, ',');
+			gen_node(b, element);
+		}
+		bputc(b, ']');
+	} break;
 	case JSON_STRING:
-
+		gen_string(b, node->string);
 		break;
 	case JSON_NUMBER:
-
+		gen_number(b, node->number);
 		break;
 	case JSON_BOOL:
-
+		bputs(b, node->boolean ? "true" : "false");
 		break;
 	}
 }
-#endif
+
+extern
+size_t json_generate(json_node *node, char **out) {
+	buffer b = {};
+	b.capacity = BUFFER_INIT_SIZE;
+	b.data = malloc(b.capacity * sizeof(char));
+	if (!b.data)
+		return 0;
+	gen_node(&b, node);
+	*out = b.data;
+	return b.used;
+}
