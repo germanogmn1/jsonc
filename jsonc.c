@@ -88,7 +88,7 @@ char *parse_string(parser_state *p) {
 	size_t i = 0;
 
 	for (;;) {
-		if (*p->at < ' ') {
+		if ((uint8_t)*p->at < ' ') {
 			p->error = "control characters not permitted";
 			return 0;
 		} if (*p->at == '\\') {
@@ -668,8 +668,8 @@ void gen_string(buffer *b, char* str) {
 			bputs(b, "\\\\");
 			break;
 		default:
-			if (c < ' ') { // control character
-				char *unicode = "\\u0000";
+			if ((uint8_t)c < ' ') { // control character
+				char unicode[] = "\\u0000";
 				unicode[4] = xdigits[c >> 4];
 				unicode[5] = xdigits[c & 0xf];
 				bputs(b, unicode);
@@ -681,23 +681,28 @@ void gen_string(buffer *b, char* str) {
 	bputc(b, '"');
 }
 
-static char number_buf[128];
-
 #define Q(x) #x
 #define QUOTE(x) Q(x)
 
 static
 void gen_number(buffer *b, double n) {
+	static char buf[128];
 	if (isfinite(n)) {
-		snprintf(number_buf, ARRAY_SIZE(number_buf), "%." QUOTE(DBL_DIG) "g", n);
-		bputs(b, number_buf);
+		snprintf(buf, ARRAY_SIZE(buf), "%." QUOTE(DBL_DIG) "g", n);
+		bputs(b, buf);
 	} else {
 		bputs(b, "null");
 	}
 }
 
+void bindent(buffer *b, char *str, int level) {
+	bputc(b, '\n');
+	while (level--)
+		bputs(b, str);
+}
+
 static
-void gen_node(buffer *b, json_node *node) {
+void gen_node(buffer *b, json_node *node, char *indent, int indent_level) {
 	switch (node->type) {
 	case JSON_NULL:
 		bputs(b, "null");
@@ -706,6 +711,7 @@ void gen_node(buffer *b, json_node *node) {
 		json_object *object = &node->object;
 		bputc(b, '{');
 		bool first = true;
+		indent_level++;
 		for (uint32_t i = 0; i < object->capacity; i++) {
 			json_object_entry *entry = object->buckets + i;
 			if (!entry->key)
@@ -715,24 +721,40 @@ void gen_node(buffer *b, json_node *node) {
 			else
 				bputc(b, ',');
 
+			if (indent)
+				bindent(b, indent, indent_level);
+
 			gen_string(b, entry->key);
 			bputc(b, ':');
-			gen_node(b, &entry->value);
+			if (indent)
+				bputc(b, ' ');
+			gen_node(b, &entry->value, indent, indent_level);
 		}
+		indent_level--;
+		if (indent)
+			bindent(b, indent, indent_level);
 		bputc(b, '}');
 	} break;
 	case JSON_ARRAY: {
 		json_array *array = &node->array;
 		bputc(b, '[');
 		bool first = true;
+		indent_level++;
 		for (uint32_t i = 0; i < array->count; i++) {
 			json_node *element = array->elements + i;
 			if (first)
 				first = false;
 			else
 				bputc(b, ',');
-			gen_node(b, element);
+
+			if (indent)
+				bindent(b, indent, indent_level);
+
+			gen_node(b, element, indent, indent_level);
 		}
+		indent_level--;
+		if (indent)
+			bindent(b, indent, indent_level);
 		bputc(b, ']');
 	} break;
 	case JSON_STRING:
@@ -748,13 +770,13 @@ void gen_node(buffer *b, json_node *node) {
 }
 
 extern
-size_t json_generate(json_node *node, char **out) {
+size_t json_generate(json_node *node, char **out, char *indent) {
 	buffer b = {};
 	b.capacity = BUFFER_INIT_SIZE;
 	b.data = malloc(b.capacity * sizeof(char));
 	if (!b.data)
 		return 0;
-	gen_node(&b, node);
+	gen_node(&b, node, indent, 0);
 	*out = b.data;
 	return b.used;
 }

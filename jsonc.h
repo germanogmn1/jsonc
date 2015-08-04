@@ -55,4 +55,4 @@ char *json_get_error();
 bool json_parse(char *data, json_node *out_json);
 void json_free(json_node *node);
 json_node *json_get(json_object *obj, char *key);
-size_t json_generate(json_node *node, char **out);
+size_t json_generate(json_node *node, char **out, char *indent);

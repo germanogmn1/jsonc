@@ -34,10 +34,11 @@ int main(int argc, char *argv[]) {
 		char *enc;
 
 		start = __rdtsc();
-		json_generate(&node, &enc);
+		json_generate(&node, &enc, "    ");
 		gen_duration = __rdtsc() - start;
 
 		printf("%s\n", enc);
+		free(enc);
 
 		printf("\n--- Querying JSON ---\n\n");
 		assert(node.type == JSON_ARRAY);
