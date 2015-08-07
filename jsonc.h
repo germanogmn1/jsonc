@@ -9,57 +9,51 @@ typedef enum {
 	JSON_STRING,
 	JSON_NUMBER,
 	JSON_BOOL,
-} json_node_type;
+} json_type;
 
-typedef enum {
-	JSON_SUCCESS,
-	JSON_ESYNTAX,
-	JSON_EALLOC,
-} json_error;
-
-struct json_object_entry;
-struct json_node;
+struct json_entry_t;
+struct json_t;
 
 typedef struct {
-	struct json_object_entry *buckets;
+	struct json_entry_t *buckets;
 	uint32_t capacity;
-} json_object;
+} json_object_t;
 
 typedef struct {
-	struct json_node *elements;
+	struct json_t *elements;
 	uint32_t count;
-} json_array;
+	uint32_t capacity;
+} json_array_t;
 
-typedef struct json_node {
-	json_node_type type;
+typedef struct json_t {
+	json_type type;
 	union {
-		json_object object;
-		json_array array;
+		json_object_t object;
+		json_array_t array;
 		char *string;
 		bool boolean;
 		double number;
 	};
-} json_node;
+} json_t;
 
-typedef struct json_object_entry {
+typedef struct json_entry_t {
 	char *key;
-	json_node value;
-} json_object_entry;
-
-typedef struct {
-	char *error;
-	json_node json;
-} json_parse_result;
+	json_t value;
+} json_entry_t;
 
 char *json_get_error();
-bool json_parse(char *data, json_node *out_json);
-void json_free(json_node *node);
+bool json_parse(char *data, json_t *out_json);
+void json_free(json_t *node);
 
-bool json_init_array(json_array *array);
-bool json_append(json_array *array, json_node value);
+bool json_append(json_array_t *array, json_t value);
+json_t *json_get(json_object_t *obj, char *key);
+bool json_set(json_object_t *obj, char *key, json_t value);
 
-bool json_init_object(json_object *obj);
-json_node *json_get(json_object *obj, char *key);
-bool json_set(json_object *obj, char *key, json_node value);
+size_t json_generate(json_t *node, char **out, char *indent);
 
-size_t json_generate(json_node *node, char **out, char *indent);
+json_t json_str(char *str);
+json_t json_array();
+json_t json_object();
+json_t json_number(double n);
+json_t json_bool(bool val);
+json_t json_null();

@@ -13,7 +13,7 @@
 #define BUFFER_INIT_SIZE 256
 #define BUFFER_GROW_RATE 2
 
-#define ARRAY_SIZE(a) (sizeof(a) / siz.eof(a[0]))
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 
 /*
  * Parser
@@ -80,7 +80,7 @@ char *parse_string(parser_state *p) {
 		len++;
 	}
 
-	char *result = malloc(sizeof(char) * len + 1);
+	char *result = malloc(sizeof(char) * (len + 1));
 	if (!result) {
 		p->error = "out of memory";
 		return 0;
@@ -175,7 +175,7 @@ char *parse_string(parser_state *p) {
 }
 
 static
-json_node parse_node(parser_state *p);
+json_t parse_node(parser_state *p);
 
 static
 uint32_t murmur3_32(char *key) {
@@ -234,14 +234,14 @@ uint32_t murmur3_32(char *key) {
 }
 
 static
-json_object_entry *object_find_bucket(json_object *obj, char *key) {
+json_entry_t *object_find_bucket(json_object_t *obj, char *key) {
 	uint32_t hash = murmur3_32(key);
 	uint32_t bucket = hash % obj->capacity;
-	json_object_entry *result = 0;
+	json_entry_t *result = 0;
 
 	// linear probing
 	for (uint32_t i = bucket; i < obj->capacity; i++) {
-		json_object_entry *entry = obj->buckets + i;
+		json_entry_t *entry = obj->buckets + i;
 		if (!entry->key || str_equals(key, entry->key)) {
 			result = entry;
 			break;
@@ -252,17 +252,17 @@ json_object_entry *object_find_bucket(json_object *obj, char *key) {
 }
 
 static
-void object_rehash(json_object *obj) {
-	json_object new_obj = {};
+void object_rehash(json_object_t *obj) {
+	json_object_t new_obj = {};
 	new_obj.capacity = OBJECT_GROW_RATE * obj->capacity;
-	new_obj.buckets = calloc(new_obj.capacity, sizeof(json_object_entry));
+	new_obj.buckets = calloc(new_obj.capacity, sizeof(json_entry_t));
 	if (!new_obj.buckets)
 		return;
 
 	for (uint32_t i = 0; i < obj->capacity; i++) {
-		json_object_entry *old_entry = obj->buckets + i;
+		json_entry_t *old_entry = obj->buckets + i;
 		if (old_entry->key) {
-			json_object_entry *new_entry = object_find_bucket(&new_obj, old_entry->key);
+			json_entry_t *new_entry = object_find_bucket(&new_obj, old_entry->key);
 			new_entry->key = old_entry->key;
 			new_entry->value = old_entry->value;
 		}
@@ -272,16 +272,16 @@ void object_rehash(json_object *obj) {
 	*obj = new_obj;
 }
 
-extern
-bool json_init_object(json_object *obj) {
+static
+bool init_object(json_object_t *obj) {
 	obj->capacity = OBJECT_INIT_SIZE;
-	obj->buckets = calloc(obj->capacity, sizeof(json_object_entry));
+	obj->buckets = calloc(obj->capacity, sizeof(json_entry_t));
 	return !!obj->buckets;
 }
 
-extern
-bool json_set(json_object *obj, char *key, json_node value) {
-	json_object_entry *entry = object_find_bucket(obj, key);
+static
+bool object_set(json_object_t *obj, char *key, json_t value) {
+	json_entry_t *entry = object_find_bucket(obj, key);
 	while (!entry) {
 		object_rehash(obj);
 		if (!obj->buckets)
@@ -296,9 +296,30 @@ bool json_set(json_object *obj, char *key, json_node value) {
 	return true;
 }
 
+static
+char *str_dup(char *str) {
+	size_t len = 0;
+	char *s = str;
+	while (*s++)
+		len++;
+
+	char *result = malloc(sizeof(char) * (len + 1));
+	char *dup = result;
+	while (*str)
+		*dup++ = *str++;
+	*dup++ = '\0';
+
+	return result;
+}
+
 extern
-json_node *json_get(json_object *obj, char *key) {
-	json_object_entry *entry = object_find_bucket(obj, key);
+bool json_set(json_object_t *obj, char *key, json_t value) {
+	return object_set(obj, str_dup(key), value);
+}
+
+extern
+json_t *json_get(json_object_t *obj, char *key) {
+	json_entry_t *entry = object_find_bucket(obj, key);
 	if (entry->key) {
 		return &entry->value;
 	} else {
@@ -307,8 +328,8 @@ json_node *json_get(json_object *obj, char *key) {
 }
 
 static
-json_object parse_object(parser_state *p) {
-	json_object result = {};
+json_object_t parse_object(parser_state *p) {
+	json_object_t result = {};
 
 	if (*p->at != '{') {
 		p->error = "invalid token at start of object";
@@ -321,7 +342,7 @@ json_object parse_object(parser_state *p) {
 		return result;
 	}
 
-	if (!json_init_object(&result)) {
+	if (!init_object(&result)) {
 		p->error = "out of memory";
 		return result;
 	}
@@ -344,11 +365,11 @@ json_object parse_object(parser_state *p) {
 			p->at++;
 			eat_whitespace(p);
 
-			json_node value = parse_node(p);
+			json_t value = parse_node(p);
 			if (p->error)
 				return result;
 
-			if (!json_set(&result, key, value)) {
+			if (!object_set(&result, key, value)) {
 				p->error = "out of memory";
 				return result;
 			}
@@ -368,19 +389,19 @@ json_object parse_object(parser_state *p) {
 	return result;
 }
 
-extern
-bool json_init_array(json_array *array) {
-	uint32_t array->capacity = ARRAY_INIT_SIZE;
-	array->elements = malloc(array->capacity * sizeof(json_node));
+static
+bool init_array(json_array_t *array) {
+	array->capacity = ARRAY_INIT_SIZE;
+	array->elements = malloc(array->capacity * sizeof(json_t));
 	return !!array->elements;
 }
 
 extern
-bool json_append(json_array *array, json_node element) {
+bool json_append(json_array_t *array, json_t element) {
 	if (array->count >= array->capacity) {
 		array->capacity *= ARRAY_GROW_RATE;
 		array->elements = realloc(array->elements,
-			sizeof(json_node) * array->capacity);
+			sizeof(json_t) * array->capacity);
 		if (!array->elements) {
 			return false;
 		}
@@ -390,8 +411,8 @@ bool json_append(json_array *array, json_node element) {
 }
 
 static
-json_array parse_array(parser_state *p) {
-	json_array result = {};
+json_array_t parse_array(parser_state *p) {
+	json_array_t result = {};
 
 	if (*p->at != '[') {
 		p->error = "invalid token at start of array";
@@ -404,7 +425,7 @@ json_array parse_array(parser_state *p) {
 		return result;
 	}
 
-	if (!json_init_array(&result)) {
+	if (!init_array(&result)) {
 		p->error = "out of memory";
 		return result;
 	}
@@ -416,7 +437,7 @@ json_array parse_array(parser_state *p) {
 			break;
 		}
 
-		json_node elem = parse_node(p);
+		json_t elem = parse_node(p);
 		if (p->error)
 			return result;
 		if (!json_append(&result, elem)) {
@@ -525,8 +546,8 @@ double parse_number(parser_state *p) {
 }
 
 static
-json_node parse_node(parser_state *p) {
-	json_node result = {};
+json_t parse_node(parser_state *p) {
+	json_t result = {};
 
 	if (*p->at == '{') {
 		result.type = JSON_OBJECT;
@@ -560,14 +581,14 @@ json_node parse_node(parser_state *p) {
 }
 
 extern
-bool json_parse(char *data, json_node *out_json) {
+bool json_parse(char *data, json_t *out_json) {
 	parser_state p = {};
 	p.at = data;
 	p.line = 1;
 	p.line_start = p.at;
 	eat_whitespace(&p);
 
-	json_node root = {};
+	json_t root = {};
 	if (*p.at == '{' || *p.at == '[') {
 		root = parse_node(&p);
 	} else {
@@ -592,12 +613,12 @@ bool json_parse(char *data, json_node *out_json) {
 }
 
 extern
-void json_free(json_node *node) {
+void json_free(json_t *node) {
 	switch (node->type) {
 	case JSON_OBJECT: {
-		json_object object = node->object;
+		json_object_t object = node->object;
 		for (int i = 0; i < object.capacity; i++) {
-			json_object_entry e = object.buckets[i];
+			json_entry_t e = object.buckets[i];
 			if (e.key) {
 				free(e.key);
 				json_free(&e.value);
@@ -606,7 +627,7 @@ void json_free(json_node *node) {
 		free(object.buckets);
 	} break;
 	case JSON_ARRAY: {
-		json_array array = node->array;
+		json_array_t array = node->array;
 		for (int i = 0; i < array.count; i++) {
 			json_free(array.elements + i);
 		}
@@ -720,18 +741,18 @@ void bindent(buffer *b, char *str, int level) {
 }
 
 static
-void gen_node(buffer *b, json_node *node, char *indent, int indent_level) {
+void gen_node(buffer *b, json_t *node, char *indent, int indent_level) {
 	switch (node->type) {
 	case JSON_NULL:
 		bputs(b, "null");
 		break;
 	case JSON_OBJECT: {
-		json_object *object = &node->object;
+		json_object_t *object = &node->object;
 		bputc(b, '{');
 		bool first = true;
 		indent_level++;
 		for (uint32_t i = 0; i < object->capacity; i++) {
-			json_object_entry *entry = object->buckets + i;
+			json_entry_t *entry = object->buckets + i;
 			if (!entry->key)
 				continue;
 			if (first)
@@ -754,12 +775,12 @@ void gen_node(buffer *b, json_node *node, char *indent, int indent_level) {
 		bputc(b, '}');
 	} break;
 	case JSON_ARRAY: {
-		json_array *array = &node->array;
+		json_array_t *array = &node->array;
 		bputc(b, '[');
 		bool first = true;
 		indent_level++;
 		for (uint32_t i = 0; i < array->count; i++) {
-			json_node *element = array->elements + i;
+			json_t *element = array->elements + i;
 			if (first)
 				first = false;
 			else
@@ -788,13 +809,65 @@ void gen_node(buffer *b, json_node *node, char *indent, int indent_level) {
 }
 
 extern
-size_t json_generate(json_node *node, char **out, char *indent) {
+size_t json_generate(json_t *node, char **out, char *indent) {
 	buffer b = {};
 	b.capacity = BUFFER_INIT_SIZE;
 	b.data = malloc(b.capacity * sizeof(char));
 	if (!b.data)
 		return 0;
 	gen_node(&b, node, indent, 0);
+	bputc(&b, '\0');
 	*out = b.data;
 	return b.used;
+}
+
+/*
+ * Builder API
+ */
+
+extern
+json_t json_str(char *str) {
+	json_t result = {};
+	result.type = JSON_STRING;
+	result.string = str_dup(str);
+	return result;
+}
+
+extern
+json_t json_array() {
+	json_t result = {};
+	result.type = JSON_ARRAY;
+	init_array(&result.array);
+	return result;
+}
+
+extern
+json_t json_object() {
+	json_t result = {};
+	result.type = JSON_OBJECT;
+	init_object(&result.object);
+	return result;
+}
+
+extern
+json_t json_number(double n) {
+	json_t result = {};
+	result.type = JSON_NUMBER;
+	result.number = n;
+	return result;
+}
+
+extern
+json_t json_bool(bool val) {
+	json_t result = {};
+	result.type = JSON_BOOL;
+	result.boolean = val;
+	return result;
+}
+
+extern
+json_t json_null() {
+	json_t result = {};
+	result.type = JSON_NULL;
+	return result;
 }
